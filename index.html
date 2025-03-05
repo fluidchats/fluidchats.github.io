@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Fluid Chat with Preset PFPs, Autocomplete, and Admin Powers</title>
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* Basic resets, dark theme */
+    * { box-sizing: border-box; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      overflow: hidden;
+    }
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    
+    /* Containers */
+    #login-container,
+    #profile-setup-container,
+    #chat-container {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #login-container, #profile-setup-container { flex-direction: column; text-align: center; }
+    #chat-container { display: none; }
+    
+    /* Buttons & inputs */
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background-color: #1e88e5;
+      color: #fff;
+      margin-top: 10px;
+      transition: background-color 0.3s ease;
+    }
+    button:hover { background-color: #1565c0; }
+    input {
+      padding: 10px;
+      font-size: 16px;
+      margin: 5px 0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background-color: #181818;
+      color: #fff;
+    }
+    
+    /* Profile Setup - Preset PFP Options */
+    #pfp-options { margin: 10px 0; }
+    #pfp-options p { margin-bottom: 5px; }
+    .pfp-option {
+      width: 80px; height: 80px; border-radius: 50%;
+      margin: 5px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: border-color 0.3s ease;
+    }
+    .pfp-option.selected { border-color: #1e88e5; }
+    
+    /* Chat UI Layout */
+    .chat-layout {
+      display: flex; width: 100%; height: 100%;
+      animation: fadeIn 0.5s forwards;
+    }
+    
+    /* Sidebar */
+    .sidebar {
+      width: 300px;
+      background-color: #1f1f1f;
+      padding: 20px;
+      border-right: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+      animation: slideIn 0.5s forwards;
+      position: relative;
+    }
+    .sidebar h2 {
+      color: #1e88e5;
+      margin-top: 0;
+      display: inline-block;
+    }
+    /* Settings button (gear icon) */
+    #open-settings {
+      float: right;
+      background: transparent;
+      color: #1e88e5;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      margin-top: -10px;
+      margin-left: 10px;
+    }
+    #open-settings:hover { color: #fff; }
+    #contact-search { width: 100%; margin-top: 10px; }
+    
+    /* Autocomplete dropdown */
+    #autocomplete-results {
+      position: absolute;
+      top: 100px;
+      left: 20px;
+      right: 20px;
+      background-color: #1f1f1f;
+      border: 1px solid #333;
+      border-radius: 4px;
+      z-index: 10;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+    }
+    .autocomplete-item {
+      padding: 10px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    .autocomplete-item:hover { background-color: #2a2a2a; }
+    
+    /* DM list with avatars */
+    #conversation-list {
+      margin-top: 20px;
+      flex: 1;
+      overflow-y: auto;
+      border-top: 1px solid #333;
+      padding-top: 10px;
+    }
+    .dm-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #333;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      animation: fadeIn 0.5s forwards;
+    }
+    .dm-item:hover { background-color: #2a2a2a; }
+    .dm-avatar { width: 30px; height: 30px; border-radius: 50%; margin-right: 8px; }
+    .dm-displayName { font-size: 1rem; color: #fff; }
+    
+    /* Chat Window */
+    .chat-window {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      animation: fadeIn 0.5s forwards;
+    }
+    .chat-window h2 { color: #1e88e5; margin-top: 0; }
+    .messages {
+      flex: 1;
+      background-color: #181818;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 10px;
+      overflow-y: auto;
+      animation: fadeIn 0.5s forwards;
+    }
+    
+    /* Discord-like message layout */
+    .message-container {
+      display: flex;
+      align-items: flex-start;
+      margin: 10px 0;
+      animation: fadeIn 0.5s forwards;
+    }
+    .message-container.self { /* Optional styling for your own messages */ }
+    .message-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      margin-right: 10px;
+      cursor: pointer;
+    }
+    .message-content { display: flex; flex-direction: column; }
+    .message-header {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .message-username { font-weight: 600; color: #fff; }
+    .message-timestamp { font-size: 0.85rem; color: #aaa; }
+    .message-body { margin-top: 4px; color: #ddd; white-space: pre-wrap; }
+    
+    .input-area {
+      display: flex;
+      margin-top: 10px;
+    }
+    .input-area input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #333;
+      border-radius: 4px 0 0 4px;
+      background-color: #121212;
+      color: #fff;
+    }
+    .input-area button {
+      padding: 10px;
+      border-radius: 0 4px 4px 0;
+    }
+    
+    /* Profile popup styling */
+    #profile-popup {
+      display: none;
+      position: absolute;
+      background-color: #1f1f1f;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px;
+      z-index: 999;
+      width: 220px;
+    }
+    #profile-popup img {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      display: block;
+      margin: 0 auto;
+    }
+    #profile-popup h3 {
+      text-align: center;
+      margin: 10px 0 5px;
+      color: #fff;
+      font-size: 1rem;
+    }
+    #profile-popup p {
+      text-align: center;
+      margin: 0;
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+    
+    /* Settings overlay with blur */
+    #settings-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(0,0,0,0.4);
+      backdrop-filter: blur(4px);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    #settings-inner {
+      background-color: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      position: relative;
+      animation: fadeIn 0.4s forwards;
+    }
+    #settings-inner h2 {
+      margin-top: 0;
+      color: #1e88e5;
+      text-align: center;
+    }
+    #close-settings {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: transparent;
+      color: #fff;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+    }
+    #settings-displayName, #settings-pfpURL {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    #save-settings {
+      float: right;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-container">
+    <h1>Fluid Chat</h1>
+    <button id="google-signin">Sign in with Google</button>
+  </div>
+
+  <!-- Profile Setup Screen -->
+  <div id="profile-setup-container" style="display:none;">
+    <h1>Set Up Your Profile</h1>
+    <input type="text" id="fullName" placeholder="Full Name" />
+    <input type="text" id="displayName" placeholder="Display Name (without @)" />
+    <div id="pfp-options">
+      <p>Choose a Profile Picture:</p>
+      <img class="pfp-option" src="https://i.pinimg.com/474x/f1/da/a7/f1daa70c9e3343cebd66ac2342d5be3f.jpg" />
+      <img class="pfp-option" src="https://i.pinimg.com/1200x/46/72/f8/4672f876389036583190d93a71aa6cb2.jpg" />
+      <img class="pfp-option" src="https://i.pinimg.com/236x/da/96/78/da96780e1b54f46d6ddb13c3e14cec83.jpg" />
+      <img class="pfp-option" src="https://i.pinimg.com/736x/c6/6a/73/c66a732387c737fa97526841cbdc0938.jpg" />
+    </div>
+    <button id="profile-save">Save Profile</button>
+  </div>
+
+  <!-- Chat UI -->
+  <div id="chat-container">
+    <div class="chat-layout">
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <h2>Contacts</h2>
+        <!-- Settings button (gear icon) -->
+        <button id="open-settings" title="Open Settings">⚙</button>
+        <input type="text" id="contact-search" placeholder="Search by display name" autocomplete="off" />
+        <div id="autocomplete-results"></div>
+        <button id="start-chat">Start Chat</button>
+        <div id="conversation-list"></div>
+      </div>
+      <!-- Chat Window -->
+      <div class="chat-window">
+        <h2 id="chat-title">Chat</h2>
+        <div class="messages" id="messages"></div>
+        <div class="input-area">
+          <input type="text" id="message-input" placeholder="Type your message..." />
+          <button id="send-message">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Popup -->
+  <div id="profile-popup"></div>
+
+  <!-- Settings Overlay with blur -->
+  <div id="settings-overlay">
+    <div id="settings-inner">
+      <button id="close-settings">X</button>
+      <h2>Settings</h2>
+      <input type="text" id="settings-displayName" placeholder="New Display Name (without @)" />
+      <input type="text" id="settings-pfpURL" placeholder="New Profile Pic URL" />
+      <button id="save-settings">Save</button>
+    </div>
+  </div>
+
+    <script>
+      // Your Firebase configuration – replace these with your actual project settings.
+      const firebaseConfig = {
+        apiKey: "AIzaSyCjLMJhZoIrhjMdNRExkvO-hvDssOWhFaw",
+        authDomain: "whatingsap.firebaseapp.com",
+        projectId: "whatingsap",
+        storageBucket: "whatingsap.firebasestorage.app",
+        messagingSenderId: "444146948060",
+        appId: "1:444146948060:web:5539ba05ea824110bbe119"
+      };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // New default PFP
+    const DEFAULT_PFP = "https://i.pinimg.com/236x/da/96/78/da96780e1b54f46d6ddb13c3e14cec83.jpg";
+    let currentUser = null;
+    let currentConversationId = null;
+    let selectedPfpURL = null; // Will store chosen preset URL
+
+    // Admin check: if current user's UID equals Towtik's UID, grant admin powers.
+    let isAdmin = false;
+    const ADMIN_UID = "4dZ0eICPqKSuvLP50ktWCVY0blP2";
+
+    // Format timestamps
+    function formatTimestamp(ts) {
+      if (!ts) return "";
+      const date = ts.toDate();
+      const now = new Date();
+      const isToday = date.toDateString() === now.toDateString();
+      const hours = date.getHours().toString().padStart(2, "0");
+      const minutes = date.getMinutes().toString().padStart(2, "0");
+      if (isToday) {
+        return `Today at ${hours}:${minutes}`;
+      } else {
+        return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+               ` at ${hours}:${minutes}`;
+      }
+    }
+
+    // Google Sign-In
+    document.getElementById('google-signin').addEventListener('click', async function() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        const result = await auth.signInWithPopup(provider);
+        currentUser = result.user;
+        // Check if user is admin
+        if (currentUser.uid === ADMIN_UID) {
+          isAdmin = true;
+        }
+        const userRef = db.collection("users").doc(currentUser.uid);
+        const userSnap = await userRef.get();
+        if (!userSnap.exists) {
+          // Show profile setup for new user
+          document.getElementById('login-container').style.display = "none";
+          document.getElementById('profile-setup-container').style.display = "flex";
+        } else {
+          // Existing user
+          document.getElementById('login-container').style.display = "none";
+          document.getElementById('chat-container').style.display = "block";
+          loadConversationList();
+        }
+      } catch (error) {
+        console.error("Google sign in error:", error);
+      }
+    });
+
+    // Profile Setup - Preset PFP selection
+    const pfpOptions = document.querySelectorAll(".pfp-option");
+    pfpOptions.forEach(option => {
+      option.addEventListener("click", function() {
+        // Remove "selected" class from all options
+        pfpOptions.forEach(opt => opt.classList.remove("selected"));
+        // Mark this option as selected and store its src
+        this.classList.add("selected");
+        selectedPfpURL = this.src;
+      });
+    });
+
+    // Save Profile with uniqueness check for displayName
+    document.getElementById('profile-save').addEventListener('click', async function() {
+      const fullName = document.getElementById('fullName').value.trim();
+      const displayNameInput = document.getElementById('displayName').value.trim();
+      if (!fullName || !displayNameInput) {
+        alert("Please enter both full name and display name!");
+        return;
+      }
+      const displayName = displayNameInput.startsWith("@") ? displayNameInput : "@" + displayNameInput;
+      // Check uniqueness of displayName
+      const querySnapshot = await db.collection("users")
+        .where("displayName", "==", displayName)
+        .get();
+      let alreadyUsed = false;
+      querySnapshot.forEach(doc => {
+        if (doc.id !== currentUser.uid) {
+          alreadyUsed = true;
+        }
+      });
+      if (alreadyUsed) {
+        alert("Display name already in use. Please choose another.");
+        return;
+      }
+      const photoURL = selectedPfpURL ? selectedPfpURL : DEFAULT_PFP;
+      const userRef = db.collection("users").doc(currentUser.uid);
+      try {
+        await userRef.set({
+          uid: currentUser.uid,
+          email: currentUser.email,
+          fullName: fullName,
+          displayName: displayName,
+          pfpURL: selectedPfpURL || "",
+          photoURL: photoURL,
+          profileCreatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        document.getElementById('profile-setup-container').style.display = "none";
+        document.getElementById('chat-container').style.display = "block";
+        loadConversationList();
+      } catch (error) {
+        console.error("Error saving profile:", error);
+      }
+    });
+
+    // Autocomplete (search by displayName)
+    const searchInput = document.getElementById("contact-search");
+    const autocompleteResults = document.getElementById("autocomplete-results");
+
+    searchInput.addEventListener("input", async function() {
+      const query = searchInput.value.trim();
+      if (!query) {
+        autocompleteResults.style.display = "none";
+        return;
+      }
+      const searchTerm = query.startsWith("@") ? query : "@" + query;
+      try {
+        const snapshot = await db.collection("users")
+          .orderBy("displayName")
+          .startAt(searchTerm)
+          .endAt(searchTerm + "\uf8ff")
+          .get();
+        autocompleteResults.innerHTML = "";
+        if (snapshot.empty) {
+          autocompleteResults.style.display = "none";
+          return;
+        }
+        snapshot.forEach(doc => {
+          const user = doc.data();
+          const div = document.createElement("div");
+          div.className = "autocomplete-item";
+          div.textContent = user.displayName + " (" + user.email + ")";
+          div.onclick = () => {
+            searchInput.value = user.email;
+            autocompleteResults.style.display = "none";
+          };
+          autocompleteResults.appendChild(div);
+        });
+        autocompleteResults.style.display = "block";
+      } catch (error) {
+        console.error("Autocomplete error:", error);
+      }
+    });
+
+    // Load DM list with avatars
+    function loadConversationList() {
+      db.collection("conversations")
+        .where("participants", "array-contains", auth.currentUser.uid)
+        .onSnapshot(async snapshot => {
+          const convoListDiv = document.getElementById('conversation-list');
+          convoListDiv.innerHTML = "";
+          for (const doc of snapshot.docs) {
+            const convoData = doc.data();
+            const otherUid = convoData.participants.find(uid => uid !== currentUser.uid);
+            if (!otherUid) continue;
+            const userSnap = await db.collection("users").doc(otherUid).get();
+            if (!userSnap.exists) continue;
+            const otherUser = userSnap.data();
+            const dmItem = document.createElement('div');
+            dmItem.className = "dm-item";
+            const avatar = document.createElement('img');
+            avatar.className = "dm-avatar";
+            avatar.src = otherUser.photoURL || DEFAULT_PFP;
+            const nameSpan = document.createElement('span');
+            nameSpan.className = "dm-displayName";
+            nameSpan.textContent = otherUser.displayName || otherUser.email || "Unknown";
+            dmItem.appendChild(avatar);
+            dmItem.appendChild(nameSpan);
+            dmItem.onclick = () => {
+              openConversation(doc.id, otherUser.displayName || otherUser.email);
+            };
+            convoListDiv.appendChild(dmItem);
+          }
+        });
+    }
+
+    // Start Chat
+    document.getElementById('start-chat').addEventListener('click', async function() {
+      const query = searchInput.value.trim();
+      if (!query) return;
+      try {
+        const emailQuery = await db.collection("users")
+          .where("email", "==", query)
+          .get();
+        if (emailQuery.empty) {
+          alert("No user found with that email!");
+          return;
+        }
+        const foundUser = emailQuery.docs[0].data();
+        const participants = [auth.currentUser.uid, foundUser.uid].sort();
+        const convoId = participants.join("_");
+        const convoRef = db.collection("conversations").doc(convoId);
+        const convoSnap = await convoRef.get();
+        if (!convoSnap.exists) {
+          await convoRef.set({
+            participants: participants,
+            participantEmails: [auth.currentUser.email, foundUser.email].sort(),
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+        openConversation(convoId, foundUser.displayName || foundUser.email);
+      } catch (error) {
+        console.error("Error starting chat:", error);
+      }
+    });
+
+    // Open conversation
+    function openConversation(conversationId, contactLabel) {
+      currentConversationId = conversationId;
+      document.getElementById('chat-title').textContent = "Chat with " + contactLabel;
+      loadMessages(conversationId);
+    }
+
+    // Real-time load messages
+    function loadMessages(conversationId) {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.innerHTML = "";
+      db.collection("conversations")
+        .doc(conversationId)
+        .collection("messages")
+        .orderBy("timestamp")
+        .onSnapshot(snapshot => {
+          messagesDiv.innerHTML = "";
+          snapshot.forEach(doc => {
+            const msg = doc.data();
+            // Attach document id for admin deletion
+            msg.id = doc.id;
+            const messageElem = renderMessage(msg);
+            messagesDiv.appendChild(messageElem);
+          });
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+    }
+
+    // Render a single message (Discord style)
+    function renderMessage(msg) {
+      const container = document.createElement('div');
+      container.className = "message-container";
+      if (msg.senderUid === auth.currentUser.uid) {
+        container.classList.add("self");
+      }
+      // Avatar
+      const avatar = document.createElement('img');
+      avatar.className = "message-avatar";
+      avatar.src = msg.senderPhoto || DEFAULT_PFP;
+      avatar.onclick = (e) => {
+        e.stopPropagation();
+        showProfilePopup(msg.senderUid, e);
+      };
+      // Content
+      const contentDiv = document.createElement('div');
+      contentDiv.className = "message-content";
+      // Header (username + timestamp)
+      const headerDiv = document.createElement('div');
+      headerDiv.className = "message-header";
+      const usernameSpan = document.createElement('span');
+      usernameSpan.className = "message-username";
+      usernameSpan.textContent = msg.senderName || "Unknown";
+      const timeSpan = document.createElement('span');
+      timeSpan.className = "message-timestamp";
+      timeSpan.textContent = formatTimestamp(msg.timestamp);
+      headerDiv.appendChild(usernameSpan);
+      headerDiv.appendChild(timeSpan);
+      // If admin, add a delete button next to header
+      if (isAdmin) {
+        const delBtn = document.createElement('button');
+        delBtn.textContent = "Delete";
+        delBtn.style.fontSize = "0.8rem";
+        delBtn.style.marginLeft = "10px";
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteMessage(msg.id);
+        };
+        headerDiv.appendChild(delBtn);
+      }
+      // Body (message text)
+      const bodyDiv = document.createElement('div');
+      bodyDiv.className = "message-body";
+      bodyDiv.textContent = msg.text;
+      contentDiv.appendChild(headerDiv);
+      contentDiv.appendChild(bodyDiv);
+      container.appendChild(avatar);
+      container.appendChild(contentDiv);
+      return container;
+    }
+
+    // Delete message (admin only)
+    function deleteMessage(messageId) {
+      if (!currentConversationId) return;
+      db.collection("conversations")
+        .doc(currentConversationId)
+        .collection("messages")
+        .doc(messageId)
+        .delete()
+        .then(() => {
+          console.log("Message deleted");
+        })
+        .catch(error => {
+          console.error("Error deleting message:", error);
+        });
+    }
+
+    // Press Enter to send message
+    document.getElementById('message-input').addEventListener('keydown', (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    document.getElementById('send-message').addEventListener('click', sendMessage);
+
+    async function sendMessage() {
+      const text = document.getElementById('message-input').value.trim();
+      if (!text || !currentConversationId) return;
+      const userRef = db.collection("users").doc(auth.currentUser.uid);
+      const userSnap = await userRef.get();
+      const userData = userSnap.data() || {};
+      db.collection("conversations")
+        .doc(currentConversationId)
+        .collection("messages")
+        .add({
+          text: text,
+          senderUid: auth.currentUser.uid,
+          senderName: userData.displayName || userData.email || auth.currentUser.email,
+          senderPhoto: userData.photoURL || DEFAULT_PFP,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        })
+        .then(() => {
+          document.getElementById('message-input').value = "";
+        })
+        .catch(error => {
+          console.error("Error sending message:", error);
+        });
+    }
+
+    // Profile popup
+    async function showProfilePopup(uid, event) {
+      try {
+        const userSnap = await db.collection("users").doc(uid).get();
+        if (!userSnap.exists) return;
+        const userData = userSnap.data();
+        const popup = document.getElementById("profile-popup");
+        popup.innerHTML = "";
+        const img = document.createElement("img");
+        img.src = userData.photoURL || DEFAULT_PFP;
+        popup.appendChild(img);
+        const h3 = document.createElement("h3");
+        h3.textContent = userData.displayName || userData.email;
+        popup.appendChild(h3);
+        let createdStr = "";
+        if (userData.profileCreatedAt) {
+          const dateVal = userData.profileCreatedAt.toDate();
+          const dateString = dateVal.toLocaleString();
+          createdStr = "Profile created: " + dateString;
+        } else {
+          createdStr = "No creation date found.";
+        }
+        const p = document.createElement("p");
+        p.textContent = createdStr;
+        popup.appendChild(p);
+        const x = event.pageX + 10;
+        const y = event.pageY - 20;
+        popup.style.left = x + "px";
+        popup.style.top = y + "px";
+        popup.style.display = "block";
+      } catch (error) {
+        console.error("Error showing profile popup:", error);
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      const popup = document.getElementById("profile-popup");
+      if (e.target.classList.contains("message-avatar") || popup.contains(e.target)) {
+        return;
+      }
+      popup.style.display = "none";
+    });
+
+    /* SETTINGS OVERLAY */
+
+    // Open settings overlay
+    document.getElementById('open-settings').addEventListener('click', () => {
+      document.getElementById('settings-overlay').style.display = "flex";
+      loadSettingsData();
+    });
+
+    // Close settings overlay
+    document.getElementById('close-settings').addEventListener('click', () => {
+      document.getElementById('settings-overlay').style.display = "none";
+    });
+
+    async function loadSettingsData() {
+      const userRef = db.collection("users").doc(auth.currentUser.uid);
+      const snap = await userRef.get();
+      if (!snap.exists) return;
+      const data = snap.data();
+      const currentDN = data.displayName ? data.displayName.slice(1) : "";
+      document.getElementById('settings-displayName').value = currentDN;
+      document.getElementById('settings-pfpURL').value = data.photoURL || "";
+    }
+
+    document.getElementById('save-settings').addEventListener('click', async () => {
+      const newDNInput = document.getElementById('settings-displayName').value.trim();
+      const newPfp = document.getElementById('settings-pfpURL').value.trim();
+      if (!newDNInput) {
+        alert("Display name cannot be empty");
+        return;
+      }
+      const finalDN = newDNInput.startsWith("@") ? newDNInput : "@" + newDNInput;
+      // Check uniqueness
+      const querySnapshot = await db.collection("users")
+        .where("displayName", "==", finalDN)
+        .get();
+      let exists = false;
+      querySnapshot.forEach(doc => {
+        if (doc.id !== auth.currentUser.uid) {
+          exists = true;
+        }
+      });
+      if (exists) {
+        alert("Display name already in use. Please choose another.");
+        return;
+      }
+      const finalPfp = newPfp || DEFAULT_PFP;
+      const userRef = db.collection("users").doc(auth.currentUser.uid);
+      try {
+        await userRef.update({
+          displayName: finalDN,
+          photoURL: finalPfp
+        });
+        alert("Settings updated!");
+        document.getElementById('settings-overlay').style.display = "none";
+        loadConversationList();
+      } catch (error) {
+        console.error("Error updating settings:", error);
+      }
+    });
+  </script>
+</body>
+</html>
